@@ -4,8 +4,6 @@ import csv
 import pandas as pd
 import ast
 
-from jedi.plugins.django import mapping
-from mlxtend.evaluate.lift_score import support
 from spmf import Spmf
 from utils import merge_csv_files, reencode_file
 import re
