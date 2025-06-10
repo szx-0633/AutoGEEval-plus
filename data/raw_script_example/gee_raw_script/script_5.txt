@@ -1,0 +1,32 @@
+import ee
+import math
+
+ee.Authenticate()
+ee.Initialize()
+
+polygon = ee.Geometry.Polygon([
+    [
+        [76.25901126532261, 28.73689532121967],
+        [76.25901126532261, 28.007070162490244],
+        [77.22580814032261, 28.007070162490244],
+        [77.22580814032261, 28.73689532121967]
+    ]
+], None, False)
+
+srtm = ee.Image('CGIAR/SRTM90_V4')
+slope = ee.Terrain.slope(srtm)
+aspect = ee.Terrain.aspect(srtm)
+
+sin_image = aspect.divide(180).multiply(math.pi).sin()
+
+mean_dict = srtm.reduceRegion(
+    reducer=ee.Reducer.mean(),
+    geometry=polygon,
+    scale=90
+)
+
+mean = mean_dict.get('elevation')
+print('Mean elevation', mean.getInfo())
+
+scale = srtm.projection().nominalScale()
+print('SRTM scale in meters', scale.getInfo())

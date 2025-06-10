@@ -1,0 +1,70 @@
+import ee
+
+ee.Authenticate()
+ee.Initialize()
+
+urban = ee.Geometry.Polygon([
+    [
+        [80.70379233989462, 26.966230223396824],
+        [80.70379233989462, 26.720555693992246],
+        [81.09174705180868, 26.720555693992246],
+        [81.09174705180868, 26.966230223396824]
+    ]
+], None, False)
+
+dataset_02 = (
+    ee.ImageCollection('MODIS/061/MOD11A1')
+    .filterDate('2002-04-01', '2002-05-01')
+    .median()
+)
+dataset_22 = (
+    ee.ImageCollection('MODIS/061/MOD11A1')
+    .filterDate('2022-04-01', '2022-05-01')
+    .median()
+)
+
+classified = ee.ImageCollection('ESA/WorldCover/v200').first()
+
+max_02 = dataset_02.select('LST_Day_1km').multiply(0.02).subtract(273)
+max_22 = dataset_22.select('LST_Day_1km').multiply(0.02).subtract(273)
+
+reducer = ee.Reducer.max().combine(ee.Reducer.min(), sharedInputs=True)
+result_02 = max_02.reduceRegion(reducer=reducer, geometry=urban, scale=1000)
+result_22 = max_22.reduceRegion(reducer=reducer, geometry=urban, scale=1000)
+
+print(result_02.getInfo())
+print(result_22.getInfo())
+
+task_02 = ee.batch.Export.image.toDrive(
+    image=max_02,
+    description='2002',
+    folder='GEE_Exports',
+    fileNamePrefix='lst_2002',
+    region=urban,
+    scale=1000,
+    crs='EPSG:4326'
+)
+
+task_22 = ee.batch.Export.image.toDrive(
+    image=max_22,
+    description='2022',
+    folder='GEE_Exports',
+    fileNamePrefix='lst_2022',
+    region=urban,
+    scale=1000,
+    crs='EPSG:4326'
+)
+
+task_classified = ee.batch.Export.image.toDrive(
+    image=classified,
+    description='classified',
+    folder='GEE_Exports',
+    fileNamePrefix='classified',
+    region=urban,
+    scale=10,
+    crs='EPSG:4326'
+)
+
+task_02.start()
+task_22.start()
+task_classified.start()

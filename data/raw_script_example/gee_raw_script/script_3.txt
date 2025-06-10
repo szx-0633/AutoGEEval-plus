@@ -1,0 +1,27 @@
+import ee
+
+ee.Authenticate()
+ee.Initialize()
+
+collection = ee.ImageCollection('LANDSAT/LC08/C02/T1').filterDate('2017-06-25', '2017-06-30')
+
+composite = ee.Algorithms.Landsat.simpleComposite(collection)
+
+customComposite = ee.Algorithms.Landsat.simpleComposite({
+    'collection': collection,
+    'percentile': 75,
+    'cloudScoreRange': 5
+})
+
+nir = customComposite.select('B5')
+red = customComposite.select('B4')
+ndvi = nir.subtract(red).divide(nir.add(red)).rename('NDVI')
+
+dataset = ee.ImageCollection('LANDSAT/LC09/C02/T2_L2').filterDate('2022-09-01', '2023-01-01')
+
+def applyScaleFactors(image):
+    opticalBands = image.select('SR_B.').multiply(0.0000275).add(-0.2)
+    thermalBands = image.select('ST_B.*').multiply(0.00341802).add(149.0)
+    return image.addBands(opticalBands, None, True).addBands(thermalBands, None, True)
+
+dataset = dataset.map(applyScaleFactors)

@@ -1,0 +1,37 @@
+import ee
+
+ee.Authenticate()
+ee.Initialize()
+
+geometry = ee.Geometry.Polygon([
+    [
+        [-110.34201425142217, 24.327833283853256],
+        [-110.34201425142217, 24.309726560204172],
+        [-110.30716699190069, 24.309726560204172],
+        [-110.30716699190069, 24.327833283853256]
+    ]
+], None, False)
+
+def mask_s2_clouds(image):
+    qa = image.select('QA60')
+
+    cloud_bit_mask = 1 << 10
+    cirrus_bit_mask = 1 << 11
+
+    mask = (
+        qa.bitwiseAnd(cloud_bit_mask).eq(0)
+        .And(qa.bitwiseAnd(cirrus_bit_mask).eq(0))
+    )
+
+    return image.updateMask(mask).divide(10000)
+
+dataset = (
+    ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+    .filterDate('2022-08-01', '2022-08-25')
+    .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
+    .map(mask_s2_clouds)
+)
+
+first_image = dataset.first()
+
+print('Image Info:', first_image.getInfo())

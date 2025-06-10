@@ -1,0 +1,9 @@
+import ee
+ee.Initialize()
+
+def mask_clouds(image):
+    return image.updateMask(image.select('QA60').Not())
+
+image = ee.Image('COPERNICUS/S2_SR/20220101T000239_20220101T000239_T18TXM')
+ndvi = image.normalizedDifference(['B8', 'B4']).rename('NDVI')
+clipped = mask_clouds(ndvi).clip(ee.Geometry.Point([-122.292, 37.901]).buffer(1000))
