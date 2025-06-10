@@ -1,6 +1,6 @@
 # AutoGEEval-plus
 
-> Automated Evaluation of Large Language Models' Ability to Generate Google Earth Engine (GEE) Geospatial Code
+> Anvanced, systematic automated Evaluation of Large Language Models' Ability to Generate Google Earth Engine (GEE) Geospatial Code
 
 ## 📌 Project Overview
 
