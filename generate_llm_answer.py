@@ -9,31 +9,9 @@ from tqdm import tqdm
 from call_language_model import call_language_model
 
 
-def extract_code_from_response_old(response_text: str) -> str:
-    """
-    从模型响应中提取Python代码
-
-    参数:
-    response_text (str): 模型的完整响应文本
-
-    返回:
-    str: 提取出的Python代码，如果没有找到则返回原始响应
-    """
-    # 尝试匹配三个反引号包围的代码块
-    code_pattern = r"```python?(.*?)```"
-    matches = re.findall(code_pattern, response_text, re.DOTALL)
-
-    if matches:
-        # 返回第一个匹配的代码块，去除前后空白
-        return matches[0].strip()
-    else:
-        # 如果没有找到代码块，返回原始响应
-        return response_text.strip()
-
-
 def filter_docstring(code_lines) -> list:
     result = []
-    in_docstring = False  # 当前是否处于 docstring 中
+    in_docstring = False  # Whether currently inside a docstring
 
     for line in code_lines:
         quotes_in_line = line.count('"""')
@@ -56,27 +34,27 @@ def filter_docstring(code_lines) -> list:
 
 def extract_code_from_response(response_text: str) -> str:
     """
-    从模型响应中提取Python代码
+    Extract Python code from model response
 
-    参数:
-    response_text (str): 模型的完整响应文本
+    Args:
+    response_text (str): The full response text from the model
 
-    返回:
-    str: 提取出的Python代码，如果没有找到则返回原始响应
+    Returns:
+    str: Extracted Python code, or the original response if not found
     """
 
-    # 尝试匹配三个反引号包围的代码块
+    # Try to match code blocks surrounded by triple backticks
     code_pattern = r"```python?(.*?)```"
     matches = re.findall(code_pattern, response_text, re.DOTALL)
 
     if matches:
-        # 返回第一个匹配的代码块，去除前后空白
+        # Return the first matched code block, stripping leading/trailing whitespace
         extracted_lines = matches[0].strip().splitlines()
         filtered_lines = filter_docstring(extracted_lines)
         result = "\n".join(filtered_lines).strip()
         return result
     else:
-        # 如果没有找到代码块，返回原始响应
+        # If no code block is found, return the original response
         result = response_text.strip()
         return result
 
@@ -168,7 +146,7 @@ def process_test_file(
         temperature = None
         max_tokens = None
 
-    # 初始化重试相关变量
+    # Initialize retry-related variables
     retry_count = 0
     last_error = None
     response_text = None
@@ -194,24 +172,24 @@ def process_test_file(
             )
             elapsed_time = time.time() - start_time
 
-            # 检查返回内容是否为空或存在错误
+            # Check if the returned content is empty or there is an error
             if not response_text or error_msg:
                 raise ValueError(f"Empty response or error: {error_msg}")
 
-            # 如果成功获取到内容，跳出重试循环
+            # If content is successfully obtained, exit the retry loop
             break
 
         except Exception as e:
             last_error = str(e)
             retry_count += 1
 
-            # 如果达到最大重试次数，记录最后的错误
+            # If the maximum number of retries is reached, record the last error
             if retry_count > max_retries:
                 error_msg = f"Max retries ({max_retries}) exceeded. Last error: {last_error}"
                 break
 
-            # 等待一段时间后重试
-            time.sleep(retry_delay * (1.5 ** (retry_count - 1)))  # 指数退避
+            # Wait for a period of time before retrying
+            time.sleep(retry_delay * (1.5 ** (retry_count - 1)))  # Exponential backoff
             continue
 
     # Extract code
@@ -454,31 +432,31 @@ def clean_file(model_name: str):
 
 def clean_content(content: str) -> str:
     """Cleans the provided content by removing unnecessary parts like think blocks and main function calls."""
-    # 1. 删除<think>...</think>之间的内容
+    # 1. Remove content between <think>...</think>
     text = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL)
 
-    # 2. 提取所有代码块
+    # 2. Extract all code blocks
     code_blocks = re.findall(r'```(?:python)?\s*(.*?)```', text, re.DOTALL)
 
     if not code_blocks:
-        # 如果没有找到代码块，返回清理后的全部内容
+        # If no code block is found, return all cleaned content
         return text.strip()
 
-    # 3. 找到最后一个包含函数定义的代码块
+    # 3. Find the last code block containing a function definition
     last_def_block = None
     for block in code_blocks:
         if 'def ' in block:
             last_def_block = block
 
     if not last_def_block:
-        # 如果没有找到包含函数定义的代码块，返回最后一个代码块
+        # If no code block containing a function definition is found, return the last code block
         last_def_block = code_blocks[-1].strip()
 
     last_def_block = "\n".join(filter_docstring(last_def_block.splitlines()))
 
-    # 4. 处理主函数定义
+    # 4. Handle main function definition
     if '__name__ == "__main__"' in last_def_block or "__name__ == '__main__'" in last_def_block:
-        # 分割代码块并保留主函数之前的部分
+        # Split the code block and keep the part before the main function
         main_split = re.split(r'if\s+__name__\s*==\s*["\']__main__[\'"]\s*:', last_def_block)
         return main_split[0].strip()
 

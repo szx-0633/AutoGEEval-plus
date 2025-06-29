@@ -7,24 +7,24 @@ from collections import defaultdict
 
 def process_test_reports(reports_dir, output_yaml_path, configs):
     """
-    处理测试报告文件夹，合并为YAML文件并生成统计信息
+    Process the test report folder, merge into a YAML file and generate statistics
 
     Args:
-        reports_dir: 测试报告所在文件夹路径
-        output_yaml_path: 输出的合并YAML文件路径
-        configs: 原始的测试用例配置
+        reports_dir: Path to the folder containing test reports
+        output_yaml_path: Output merged YAML file path
+        configs: Original test case configuration
     """
 
     def truncate_error_message(error_msg, max_chars=2000):
         """
-        截断错误信息，按字符长度限制
+        Truncate error message by character length limit
 
         Args:
-            error_msg: 错误信息字符串
-            max_chars: 最大字符数，默认2000字符
+            error_msg: Error message string
+            max_chars: Maximum number of characters, default is 2000
 
         Returns:
-            截断后的错误信息
+            Truncated error message
         """
         if not isinstance(error_msg, str):
             error_msg = str(error_msg)
@@ -32,16 +32,16 @@ def process_test_reports(reports_dir, output_yaml_path, configs):
         if len(error_msg) <= max_chars:
             return error_msg
 
-        # 截断并添加提示信息
+        # Truncate and add prompt message
         truncated_msg = error_msg[:max_chars]
-        truncated_msg += f"\n\n... [错误信息已截断，原始长度{len(error_msg)}字符，仅显示前{max_chars}字符]"
+        truncated_msg += f"\n\n... [Error message truncated, original length {len(error_msg)} characters, only showing first {max_chars} characters]"
 
         return truncated_msg
 
-    # 存储所有测试报告的字典，以function_name为键
+    # Dictionary to store all test reports, using function_name as the key
     all_reports = []
 
-    # 遍历文件夹中的所有JSON文件
+    # Traverse all JSON files in the folder
     total_count = 0
     for file_path in Path(reports_dir).glob("*.json"):
         with open(file_path, "r", encoding="utf-8") as f:
@@ -51,11 +51,11 @@ def process_test_reports(reports_dir, output_yaml_path, configs):
                 file_errors = report.get("file_errors", [])
 
                 if len(file_errors) > 0:
-                    # 如果存在file_errors，则从配置文件加载该任务测试用例，全部作为失败
+                    # If file_errors exist, load all test cases for this task from the config file, all marked as failed
                     test_cases_config = configs.get(function_name, [])
 
                     for i, test_case in enumerate(test_cases_config):
-                        # 截断错误信息
+                        # Truncate error message
                         truncated_error = truncate_error_message(file_errors[0])
 
                         failed_test_case = {
@@ -72,22 +72,22 @@ def process_test_reports(reports_dir, output_yaml_path, configs):
                     test_cases = report.get("test_cases", [])
 
                     for i, test_case in enumerate(test_cases):
-                        # 设置其他必要字段
+                        # Set other necessary fields
                         test_case["function_name"] = function_name
 
-                        # 如果测试用例中也有错误信息，同样进行截断
+                        # If there is also an error message in the test case, also truncate it
                         if "error" in test_case:
                             test_case["error"] = truncate_error_message(test_case["error"])
 
                         all_reports.append(test_case)
 
             except json.JSONDecodeError:
-                print(f"无法解析JSON文件: {file_path}")
+                print(f"Unable to parse JSON file: {file_path}")
                 total_count += 1
                 continue
 
             except Exception as e:
-                print(f"处理文件 {file_path} 时发生错误: {e}")
+                print(f"Error occurred while processing file {file_path}: {e}")
                 total_count += 1
                 continue
 
@@ -96,14 +96,14 @@ def process_test_reports(reports_dir, output_yaml_path, configs):
     with open(output_yaml_path, "w", encoding="utf-8") as output_file:
         yaml.dump(all_reports, output_file, allow_unicode=True)
 
-    print(f"已合并 {total_count} 个测试报告到 {output_yaml_path}， 总测试用例数: {len(all_reports)}")
+    print(f"Merged {total_count} test reports into {output_yaml_path}, total test cases: {len(all_reports)}")
 
 
 def python_constructor(loader, node):
     """
-    自定义构造器，用于解析 !python 标签中的 Python 代码，在本文件中无需进行任何处理。
+    Custom constructor for parsing Python code in !python tags, no processing needed in this file.
     """
-    return None  # 如果没有函数，返回 None
+    return None  # Return None if there is no function
 
 
 def process_models(models, task_types):
@@ -111,8 +111,8 @@ def process_models(models, task_types):
 
     for model in models:
         for task_type in task_types:
-            reports_directory = f"./generate_results/{model}/{task_type}_output/reports"  # 测试报告所在文件夹
-            merged_yaml_path = f"./generate_results/{model}/{task_type}_test_reports.yaml"  # 合并后的YAML文件路径
+            reports_directory = f"./generate_results/{model}/{task_type}_output/reports"  # Folder containing test reports
+            merged_yaml_path = f"./generate_results/{model}/{task_type}_test_reports.yaml"  # Path to merged YAML file
 
             with open(f"./test_code/{task_type}_code/{task_type}_test_config.yaml", 'r', encoding='utf-8') as f:
                   config = yaml.load(f, Loader=yaml.Loader)
@@ -122,18 +122,18 @@ def process_models(models, task_types):
 
 def classify_error_type(test_case):
     """
-    根据错误信息分类错误类型（仅用于非边缘测试用例）
+    Classify error type based on error message (only for non-edge test cases)
     """
     if test_case.get('status') != 'failed':
         return None
 
-    # 如果是边缘测试用例，不进行错误分类
+    # Do not classify errors for edge test cases
     if test_case.get('edge_test', False):
         return None
 
     error_msg = test_case.get('error', '').lower()
 
-    # 根据错误信息确定错误类型（非边缘测试用例）
+    # Determine error type based on error message (non-edge test cases only)
     if 'error executing code' in error_msg:
         error_type = 'syntax error'
     elif 'error in test case' in error_msg:
@@ -147,7 +147,7 @@ def classify_error_type(test_case):
     elif 'network error' in error_msg or 'max retries' in error_msg or 'error downloading' in error_msg:
         error_type = 'network error'
     else:
-        print(f"未分类的错误信息: {error_msg}")
+        print(f"Unclassified error message: {error_msg}")
         error_type = 'other error'
 
     return error_type
@@ -155,7 +155,7 @@ def classify_error_type(test_case):
 
 def calculate_single_run_pass_rate(model, task_type, run_index):
     """
-    计算单次运行的通过率
+    Calculate the pass rate for a single run
     """
     atomic_total_tests = 5078
     combined_total_tests = 1199
@@ -175,27 +175,27 @@ def calculate_single_run_pass_rate(model, task_type, run_index):
     yaml_path = Path(yaml_file)
 
     if not yaml_path.exists():
-        print(f"警告: 文件不存在 {yaml_file}")
+        print(f"Warning: File does not exist {yaml_file}")
         return 0.0
 
     try:
         with open(yaml_path, 'r', encoding='utf-8') as f:
             test_reports = yaml.safe_load(f) or []
 
-        # 计算通过的测试用例数
+        # Count the number of passed test cases
         passed_tests = sum(1 for test_case in test_reports
                            if test_case.get('status') == 'passed')
 
         return passed_tests / total_tests
 
     except Exception as e:
-        print(f"读取文件 {yaml_file} 时发生错误: {e}")
+        print(f"Error reading file {yaml_file}: {e}")
         return 0.0
 
 
 def calculate_pass_at_k(model, task_type, k):
     """
-    计算pass@k通过率
+    Calculate pass@k rate
     """
     atomic_total_tests = 5078
     combined_total_tests = 1199
@@ -211,10 +211,10 @@ def calculate_pass_at_k(model, task_type, k):
     if total_tests == 0:
         return 0.0
 
-    # 存储每个测试用例的结果 (function_name, test_case_id) -> [status1, status2, ...]
+    # Store the results of each test case (function_name, test_case_id) -> [status1, status2, ...]
     test_case_results = defaultdict(list)
 
-    # 读取k次运行的结果
+    # Read the results of k runs
     for run_index in range(1, k + 1):
         yaml_file = f"./generate_results/{model}_{run_index}/{task_type}_test_reports.yaml"
         yaml_path = Path(yaml_file)
@@ -226,7 +226,7 @@ def calculate_pass_at_k(model, task_type, k):
             with open(yaml_path, 'r', encoding='utf-8') as f:
                 test_reports = yaml.safe_load(f) or []
 
-            # 处理每个测试用例的结果
+            # Process the results of each test case
             for test_case in test_reports:
                 function_name = test_case.get('function_name', '')
                 test_case_id = test_case.get('test_case_id', 0)
@@ -238,7 +238,7 @@ def calculate_pass_at_k(model, task_type, k):
         except Exception as e:
             continue
 
-    # 计算pass@k
+    # Calculate pass@k
     passed_tests = 0
     for test_key, results in test_case_results.items():
         if len(results) > 0 and any(results):
@@ -249,12 +249,12 @@ def calculate_pass_at_k(model, task_type, k):
 
 def calculate_non_edge_error_distribution(model, task_type):
     """
-    计算非边缘测试用例的错误类型分布
+    Calculate the error type distribution for non-edge test cases
     """
     error_counts = defaultdict(int)
     total_non_edge_failed = 0
 
-    # 统计所有5次运行的错误类型（仅非边缘测试用例）
+    # Count error types for all 5 runs (non-edge test cases only)
     for run_index in range(1, 6):
         yaml_file = f"./generate_results/{model}_{run_index}/{task_type}_test_reports.yaml"
         yaml_path = Path(yaml_file)
@@ -267,7 +267,7 @@ def calculate_non_edge_error_distribution(model, task_type):
                 test_reports = yaml.safe_load(f) or []
 
             for test_case in test_reports:
-                # 只统计非边缘测试用例的失败情况
+                # Only count failed non-edge test cases
                 if (test_case.get('status') == 'failed' and
                         not test_case.get('edge_test', False)):
                     total_non_edge_failed += 1
@@ -278,7 +278,7 @@ def calculate_non_edge_error_distribution(model, task_type):
         except Exception as e:
             continue
 
-    # 计算比例
+    # Calculate proportions
     error_proportions = {}
     if total_non_edge_failed > 0:
         for error_type, count in error_counts.items():
@@ -289,12 +289,12 @@ def calculate_non_edge_error_distribution(model, task_type):
 
 def calculate_edge_case_pass_rate(model, task_type):
     """
-    计算边缘测试用例的通过率
+    Calculate the pass rate for edge test cases
     """
     edge_passed = 0
     edge_total = 0
 
-    # 统计所有5次运行的边缘测试用例结果
+    # Count the results of edge test cases for all 5 runs
     for run_index in range(1, 6):
         yaml_file = f"./generate_results/{model}_{run_index}/{task_type}_test_reports.yaml"
         yaml_path = Path(yaml_file)
@@ -307,7 +307,7 @@ def calculate_edge_case_pass_rate(model, task_type):
                 test_reports = yaml.safe_load(f) or []
 
             for test_case in test_reports:
-                # 只统计边缘测试用例
+                # Only count edge test cases
                 if test_case.get('edge_test', False):
                     edge_total += 1
                     if test_case.get('status') == 'passed':
@@ -316,7 +316,7 @@ def calculate_edge_case_pass_rate(model, task_type):
         except Exception as e:
             continue
 
-    # 计算边缘测试用例通过率
+    # Calculate edge test case pass rate
     edge_pass_rate = edge_passed / edge_total if edge_total > 0 else 0.0
 
     return edge_pass_rate
@@ -324,9 +324,9 @@ def calculate_edge_case_pass_rate(model, task_type):
 
 def calculate_all_models_comprehensive_results(models, task_types):
     """
-    计算所有模型的综合结果，包括通过率、非边缘错误类型分布和边缘测试用例通过率
+    Calculate comprehensive results for all models, including pass rate, non-edge error type distribution, and edge test case pass rate
     """
-    # 定义非边缘错误类型顺序
+    # Define the order of non-edge error types
     non_edge_error_types = [
         'syntax error',
         'attribute or parameter error',
@@ -338,16 +338,16 @@ def calculate_all_models_comprehensive_results(models, task_types):
     ]
 
     for task_type in task_types:
-        print(f"\n=== {task_type.upper()} 任务类型结果 ===")
+        print(f"\n=== {task_type.upper()} TASK TYPE RESULTS ===")
 
-        # 构建表头
+        # Build table header
         header = "Model,Run1,Run2,Run3,Run4,Run5,Average,Pass@1,Pass@3,Pass@5,Edge_Pass_Rate"
         for error_type in non_edge_error_types:
             header += f",{error_type}"
         print(header)
 
         for model in models:
-            # 计算单次运行通过率
+            # Calculate pass rate for a single run
             single_runs = []
             sum_pass = 0.0
             for run_index in range(1, 6):
@@ -356,21 +356,21 @@ def calculate_all_models_comprehensive_results(models, task_types):
                 sum_pass += single_rate
             average = sum_pass / 5
 
-            # 计算pass@k
+            # Calculate pass@k
             pass_at_1 = calculate_pass_at_k(model, task_type, 1)
             pass_at_3 = calculate_pass_at_k(model, task_type, 3)
             pass_at_5 = calculate_pass_at_k(model, task_type, 5)
 
-            # 计算边缘测试用例通过率
+            # Calculate edge test case pass rate
             edge_pass_rate = calculate_edge_case_pass_rate(model, task_type)
 
-            # 计算非边缘错误类型分布
+            # Calculate non-edge error type distribution
             non_edge_error_distribution = calculate_non_edge_error_distribution(model, task_type)
 
-            # 构建输出行
+            # Build output line
             result_line = f"{model},{','.join(single_runs)},{average:.4f},{pass_at_1:.4f},{pass_at_3:.4f},{pass_at_5:.4f},{edge_pass_rate:.4f}"
 
-            # 添加非边缘错误类型比例
+            # Add non-edge error type proportions
             for error_type in non_edge_error_types:
                 proportion = non_edge_error_distribution.get(error_type, 0.0)
                 result_line += f",{proportion:.4f}"
@@ -380,19 +380,19 @@ def calculate_all_models_comprehensive_results(models, task_types):
 
 def calculate_detailed_edge_statistics(models, task_types):
     """
-    计算详细的边缘测试用例统计信息
+    Calculate detailed statistics for edge test cases
     """
-    print(f"\n=== 边缘测试用例详细统计 ===")
+    print(f"\n=== Detailed statistics for edge test cases ===")
 
     for task_type in task_types:
-        print(f"\n--- {task_type.upper()} 边缘测试用例统计 ---")
+        print(f"\n--- {task_type.upper()} Edge Test Case Statistics ---")
         print("Model,Edge_Passed,Edge_Total,Edge_Pass_Rate")
 
         for model in models:
             edge_passed = 0
             edge_total = 0
 
-            # 统计所有5次运行的边缘测试用例结果
+            # Count the results of edge test cases for all 5 runs
             for run_index in range(1, 6):
                 yaml_file = f"./generate_results/{model}_{run_index}/{task_type}_test_reports.yaml"
                 yaml_path = Path(yaml_file)

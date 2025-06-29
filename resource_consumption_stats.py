@@ -7,14 +7,14 @@ def calculate_resource_consumption_stats(model_basenames, task_types):
     all_stats = {}
 
     for task in task_types:
-        print(f"\n=== 任务类型: {task} ===")
+        print(f"\n=== Task Type: {task} ===")
         print("Model,Avg_Tokens,Avg_Time(s),Avg_Cleaned_Lines,Avg_Raw_Lines")
         print("-" * 80)
 
         task_stats = {}
 
         for model in model_basenames:
-            # 初始化当前模型在当前任务的统计数据
+            # Initialize statistics for the current model and current task
             task_stats[model] = {
                 'avg_tokens': 0,
                 'avg_time': 0,
@@ -22,7 +22,7 @@ def calculate_resource_consumption_stats(model_basenames, task_types):
                 'avg_raw_lines': 0
             }
 
-            # 遍历5次运行结果（run_index从1到5）
+            # Iterate over 5 runs (run_index from 1 to 5)
             found_valid_run = False
             for run_index in range(1, 6):
                 filename = f"./generate_results/{model}_{run_index}/{task}/summary.yaml"
@@ -32,8 +32,8 @@ def calculate_resource_consumption_stats(model_basenames, task_types):
                         with open(filename, 'r', encoding='utf-8') as file:
                             data = yaml.safe_load(file)
 
-                        if data:  # 确保数据不为空
-                            # 收集当前run的所有结果
+                        if data:  # Ensure data is not empty
+                            # Collect all results for the current run
                             run_tokens = []
                             run_times = []
                             run_cleaned_lines = []
@@ -50,20 +50,20 @@ def calculate_resource_consumption_stats(model_basenames, task_types):
                                 run_cleaned_lines.append(cleaned_lines)
                                 run_raw_lines.append(raw_lines)
 
-                            # 计算当前run的平均值
+                            # Calculate the average for the current run
                             if run_tokens:
                                 avg_tokens = sum(run_tokens) / len(run_tokens)
                                 avg_time = sum(run_times) / len(run_times)
                                 avg_cleaned_lines = sum(run_cleaned_lines) / len(run_cleaned_lines)
                                 avg_raw_lines = sum(run_raw_lines) / len(run_raw_lines)
 
-                                # 如果平均token数大于0，使用这次的结果
+                                # If the average token count is greater than 0, use this result
                                 if avg_tokens > 0:
                                     task_stats[model]['avg_tokens'] = avg_tokens
                                     task_stats[model]['avg_time'] = avg_time
                                     task_stats[model]['avg_cleaned_lines'] = avg_cleaned_lines
                                     task_stats[model]['avg_raw_lines'] = avg_raw_lines
-                                    break  # 找到有效的run后跳出
+                                    break  # Break after finding a valid run
 
                                 task_stats[model]['avg_tokens'] = avg_tokens
                                 task_stats[model]['avg_time'] = avg_time
@@ -74,33 +74,33 @@ def calculate_resource_consumption_stats(model_basenames, task_types):
                         print(f"Warning: Error reading {filename}: {e}")
                         continue
 
-            # 输出当前模型在当前任务的统计结果
+            # Output the statistics for the current model and current task
             model_stats = task_stats[model]
             print(f"{model},{model_stats['avg_tokens']:.2f},"
                   f"{model_stats['avg_time']:.4f},{model_stats['avg_cleaned_lines']:.2f},"
                   f"{model_stats['avg_raw_lines']:.2f}")
 
-        # 保存当前任务的统计结果
+        # Save the statistics for the current task
         all_stats[task] = task_stats
 
 
 def calculate_codeLines_from_raw(model_basenames, task_types):
     """
-    根据模型名称和任务类型计算代码行数。
+    Calculate code lines based on model name and task type.
     """
     for task in task_types:
-        print(f"\n=== 任务类型: {task} ===")
+        print(f"\n=== Task Type: {task} ===")
         print("Model,Avg_Cleaned_Lines,Avg_Raw_Lines")
         print("-" * 80)
 
         task_stats = {}
         for model in model_basenames:
-            # 初始化当前模型在当前任务的统计数据
+            # Initialize statistics for the current model and current task
             task_stats[model] = {
                 'avg_cleaned_lines': 0,
                 'avg_raw_lines': 0
             }
-            # 遍历5次运行结果（run_index从1到5）
+            # Iterate over 5 runs (run_index from 1 to 5)
             total_cleaned_lines = 0
             total_raw_lines = 0
             total_files = 0
@@ -118,7 +118,7 @@ def calculate_codeLines_from_raw(model_basenames, task_types):
                             total_cleaned_lines += len(cleaned_content.splitlines())
                             total_files += 1
 
-            # 计算平均值
+            # Calculate averages
             if total_files > 0:
                 task_stats[model]['avg_cleaned_lines'] = total_cleaned_lines / total_files
                 task_stats[model]['avg_raw_lines'] = total_raw_lines / total_files
@@ -133,18 +133,18 @@ def calculate_codeLines_from_raw(model_basenames, task_types):
 
 def extract_code_from_response(response_text: str) -> str:
     """
-    从模型响应中提取Python代码
+    Extract Python code from model response
 
-    参数:
-    response_text (str): 模型的完整响应文本
+    Args:
+    response_text (str): The full response text from the model
 
-    返回:
-    str: 提取出的Python代码，如果没有找到则返回原始响应
+    Returns:
+    str: Extracted Python code, or the original response if not found
     """
 
     def filter_docstring(code_lines) -> list:
         result = []
-        in_docstring = False  # 当前是否处于 docstring 中
+        in_docstring = False  # Whether currently inside a docstring
 
         for line in code_lines:
             quotes_in_line = line.count('"""')
@@ -164,37 +164,37 @@ def extract_code_from_response(response_text: str) -> str:
                     continue
         return result
 
-    # 尝试匹配三个反引号包围的代码块
+    # Try to match code blocks surrounded by triple backticks
     code_pattern = r"```python?(.*?)```"
     matches = re.findall(code_pattern, response_text, re.DOTALL)
 
     if matches:
-        # 返回第一个匹配的代码块，去除前后空白
+        # Return the first matched code block, stripping leading/trailing whitespace
         extracted_lines = matches[0].strip().splitlines()
         filtered_lines = filter_docstring(extracted_lines)
         result = "\n".join(filtered_lines).strip()
         return result
     else:
-        # 如果没有找到代码块，返回原始响应
+        # If no code block is found, return the original response
         result = response_text.strip()
         return result
 
 
 def calculate_resource_consumption_by_test_cases(model_basenames, task_types):
     """
-    计算测试用例层面的资源消耗统计数据。每个任务的多个测试用例则复制多遍
+    Calculate resource consumption statistics at the test case level. For multiple test cases per task, duplicate accordingly.
     """
 
     def python_constructor(loader, node):
         """
-        自定义构造器，用于解析 !python 标签中的 Python 代码，在本文件中无需进行任何处理。
+        Custom constructor for parsing Python code in !python tags, no processing needed in this file.
         """
-        return None  # 如果没有函数，返回 None
+        return None  # Return None if there is no function
 
     yaml.add_constructor('!python', python_constructor)
 
     for task in task_types:
-        print(f"\n=== 任务类型: {task} ===")
+        print(f"\n=== Task Type: {task} ===")
         print("Model,Avg_Tokens,Avg_Time(s),Avg_Cleaned_Lines,Avg_Raw_Lines")
         print("-" * 80)
 
@@ -202,9 +202,9 @@ def calculate_resource_consumption_by_test_cases(model_basenames, task_types):
             configs = yaml.load(f, Loader=yaml.Loader)
 
         for model in model_basenames:
-            # 遍历5次运行结果（run_index从1到5）
+            # Iterate over 5 runs (run_index from 1 to 6)
             for run_index in range(1, 7):
-                # 初始化当前模型在当前任务的统计数据
+                # Initialize statistics for the current model and current task
                 task_stats = {
                     'avg_tokens': 0,
                     'avg_time': 0,
@@ -223,7 +223,7 @@ def calculate_resource_consumption_by_test_cases(model_basenames, task_types):
                             data = yaml.safe_load(file)
 
                         if data:
-                            # 收集当前run的所有结果
+                            # Collect all results for the current run
                             run_tokens = []
                             run_times = []
                             run_cleaned_lines = []
@@ -245,7 +245,7 @@ def calculate_resource_consumption_by_test_cases(model_basenames, task_types):
                                     run_cleaned_lines.append(cleaned_lines)
                                     run_raw_lines.append(raw_lines)
 
-                            # 计算当前run的平均值
+                            # Calculate the average for the current run
                             if run_tokens:
                                 avg_tokens = sum(run_tokens) / len(run_tokens)
                                 avg_time = sum(run_times) / len(run_times)
@@ -261,7 +261,7 @@ def calculate_resource_consumption_by_test_cases(model_basenames, task_types):
                         print(f"Warning: Error reading {filename}: {e}")
                         continue
 
-                # 输出当前模型在当前任务的统计结果
+                # Output the statistics for the current model and current task
                 model_stats = task_stats
                 # print(f"{model}_{run_index},{model_stats['avg_tokens']:.2f},"
                 #       f"{model_stats['avg_time']:.4f},{model_stats['avg_cleaned_lines']:.2f},"
@@ -272,18 +272,18 @@ def calculate_resource_consumption_by_test_cases(model_basenames, task_types):
 
 def calculate_resource_consumption_from_raw_by_test_cases(model_basenames, task_types):
     """
-    根据模型名称和任务类型计算测试用例层面的资源消耗和代码行数。
+    Calculate resource consumption and code lines at the test case level based on model name and task type.
     """
     def python_constructor(loader, node):
         """
-        自定义构造器，用于解析 !python 标签中的 Python 代码，在本文件中无需进行任何处理。
+        Custom constructor for parsing Python code in !python tags, no processing needed in this file.
         """
-        return None  # 如果没有函数，返回 None
+        return None  # Return None if there is no function
 
     yaml.add_constructor('!python', python_constructor)
 
     for task in task_types:
-        print(f"\n=== 任务类型: {task} ===")
+        print(f"\n=== Task Type: {task} ===")
         print("Model,Avg_Tokens,Avg_Time(s),Avg_Cleaned_Lines,Avg_Raw_Lines")
         print("-" * 80)
 
@@ -293,14 +293,14 @@ def calculate_resource_consumption_from_raw_by_test_cases(model_basenames, task_
             configs = yaml.load(f, Loader=yaml.Loader)
 
         for model in model_basenames:
-            # 遍历5次运行结果（run_index从1到5）
+            # Iterate over 5 runs (run_index from 1 to 6)
             all_avg_tokens = []
             all_avg_times = []
             all_avg_cleaned_lines = []
             all_avg_raw_lines = []
 
             for run_index in range(1, 7):
-                # 初始化当前模型在当前任务的统计数据
+                # Initialize statistics for the current model and current task
                 run_stats = {
                     'avg_tokens': 0,
                     'avg_time': 0,
@@ -319,7 +319,7 @@ def calculate_resource_consumption_from_raw_by_test_cases(model_basenames, task_
                             data = yaml.safe_load(file)
 
                         if data:
-                            # 收集当前run的所有结果
+                            # Collect all results for the current run
                             run_tokens = []
                             run_times = []
                             run_cleaned_lines = []
@@ -346,7 +346,7 @@ def calculate_resource_consumption_from_raw_by_test_cases(model_basenames, task_
                                     run_cleaned_lines.append(cleaned_lines)
                                     run_raw_lines.append(raw_lines)
 
-                            # 计算当前run的平均值
+                            # Calculate the average for the current run
                             if run_tokens:
                                 avg_tokens = sum(run_tokens) / len(run_tokens)
                                 avg_time = sum(run_times) / len(run_times)
@@ -402,3 +402,4 @@ if __name__ == "__main__":
     calculate_resource_consumption_from_raw_by_test_cases(model_basenames, task_types)
 
     print(1)
+

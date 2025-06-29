@@ -5,7 +5,7 @@ import pandas as pd
 import ast
 
 from spmf import Spmf
-from utils import merge_csv_files, reencode_file
+from utils import merge_csv_files
 import re
 import esprima
 import zipfile
@@ -172,7 +172,7 @@ def extract_operators_from_ast_js(ast_data, skip_custom_function=False, custom_f
         if callee['object'].get('type') == 'CallExpression':
             process_call_expression(callee['object'], in_function)
 
-        operator = extract_operator_path(callee)
+        operator = extract_operator_path_js(callee)
         if operator:
             if in_function and custom_function_tag:
                 operators.append(f"{custom_function_tag}{operator}")
@@ -269,7 +269,7 @@ def process_single_zip_ast(zip_path, output_dir, part_num):
                 try:
                     with open(file_path, 'r', encoding='utf-8') as f:
                         ast_data = json.load(f)
-                        operators = extract_operators_from_ast(ast_data, skip_custom_function=False, custom_function_tag="[function]")
+                        operators = extract_operators_from_ast_py(ast_data, skip_custom_function=False, custom_function_tag="[function]")
                         file_name = os.path.splitext(filename)[0]
                         # Convert operator list to string
                         operators_str = ','.join(operators)
@@ -320,7 +320,6 @@ def merge_results(output_dir, output_file):
     # Initialize an empty DataFrame to store merged data
     combined_df = pd.DataFrame()
 
-    # 遍历每个文件并读取内容
     for file in file_list:
         df = pd.read_csv(file)
         combined_df = pd.concat([combined_df, df], ignore_index=True)
@@ -342,7 +341,7 @@ def process_ast_folder(folder_path):
             file_path = os.path.join(folder_path, filename)
             with open(file_path, 'r', encoding='utf-8') as f:
                 ast_data = json.load(f)
-                operators = extract_operators_from_ast(ast_data)
+                operators = extract_operators_from_ast_py(ast_data)
                 # Only keep filename (without path and extension) and operator list
                 file_name = os.path.splitext(filename)[0]
                 all_operators.append([file_name, operators])
@@ -521,7 +520,6 @@ def process_all_operators(df: pd.DataFrame, all_apis_set: Set[str], all_apis_sho
         processed_list = [process_operator(op) for op in operators_list]
         processed_operators_list.append(processed_list)
 
-    # 添加新列
     df[output_col] = processed_operators_list
     df = df.drop(columns=[input_col])
 
@@ -538,15 +536,15 @@ def index_operators(input_file: str, operators_file: str, output_dir: str):
         output_dir (str): 输出文件保存目录。
     """
 
-    # Step 1: 读取标准 API 数据
+    # Step 1: Read the standard API file
     all_apis = pd.read_csv(operators_file, encoding='utf-8')
     all_apis_set = set(all_apis['full_name'])
     all_apis_short_set = set(all_apis['short_name'])
 
-    # Step 2: 读取原始 operator 序列数据并处理
+    # Step 2: Read the input CSV file
     raw_df = pd.read_csv(input_file, encoding='utf-8')
 
-    # 处理 operator，标准化为 Processed_Operators 列表
+    # Process the operators in the input DataFrame
     processed_df = process_all_operators(
         raw_df,
         all_apis_set=all_apis_set,
@@ -560,8 +558,8 @@ def index_operators(input_file: str, operators_file: str, output_dir: str):
     processed_df.to_csv(processed_seq_path, index=False)
     print("已保存处理后的算子序列：", processed_seq_path)
 
-    # Step 3: 获取所有唯一的 operator 并构建映射
-    # 展平所有 Processed_Operators 列中的列表
+    # Step 3: Get unique operators and create mapping
+    # Flatten the list of lists to a single list
     all_processed_ops = [
         op
         for ops_list in processed_df['Processed_Operators']
@@ -579,7 +577,7 @@ def index_operators(input_file: str, operators_file: str, output_dir: str):
     # 保存 unique_operators
     unique_ops_path = os.path.join(output_dir, 'indexed_unique_operators.csv')
     unique_operators_df.to_csv(unique_ops_path, index=False)
-    print("已保存唯一算子映射：", unique_ops_path)
+    print("Saved operator mapping", unique_ops_path)
 
     # 构建字典：operator -> index
     operator_to_index: Dict[str, int] = dict(zip(
@@ -605,17 +603,15 @@ def index_operators(input_file: str, operators_file: str, output_dir: str):
 
 
 def convert_to_spmf_format(input_file, output_file):
-    # 读取CSV
     df = pd.read_csv(input_file)
     df = df.dropna()
     sequences = df['Indexed_Operators'].apply(lambda x: [i for i in ast.literal_eval(x) if i != 0]).tolist()
 
-    # 转换为SPMF格式并写入文件
+    # convert to SPMF format
     with open(output_file, 'w') as f:
         for i, sequence in enumerate(sequences):
-            # 检查sequence是否为空
-            if sequence:  # 如果sequence非空
-                # SPMF格式：每个项目用空格分隔，每个项目集用-1分隔，序列用-2结束
+            if sequence:
+                # SPMF format: use space to separate numbers, and end with -1 -2
                 f.write(' '.join(map(str, sequence)) + ' -1 -2\n')
             if i % 10000 == 0:
                 print(f"Processed {i} sequences")
@@ -623,7 +619,7 @@ def convert_to_spmf_format(input_file, output_file):
 
 
 def prefix_span_spmf(input_file: object, min_support: object, max_pattern_length: object, output_file: object) -> None:
-    # 需要java21及以上版本，否则会报错
+    # Note: Need Java 21 or later installed and set in PATH
     print("Start mining frequent sequences")
     spmf = Spmf("PrefixSpan", input_filename=input_file,
                 output_filename=r"./data/prefixspan_output.txt", arguments=[min_support, max_pattern_length],
@@ -636,46 +632,41 @@ def prefix_span_spmf(input_file: object, min_support: object, max_pattern_length
 
 
 def span_to_operator(input_file, index_file, output_file):
-    # 读取输入文件和索引文件
     data_df = pd.read_csv(input_file, sep=';')
     index_df = pd.read_csv(index_file)
-    # 创建一个字典，用于数字到文字的映射
+    # a dictionary to map index to operator
     index_dict = dict(zip(index_df['Index'], index_df['Processed_Operators']))
-    # 定义一个函数，用于处理每一行的第一列
     def process_row(row):
-        # 去掉外层的多余字符（如 "[", "]", 和引号）
+        # remove brackets and quotes from the row
         row = row.strip("[]'\"")
-        # 将字符串形式的列表转换为真正的数字列表
+        # try to convert the row into a list of integers
         try:
             span_list = list(map(int, row.split()))
         except ValueError:
-            return None  # 如果无法解析，返回 None
-        # 过滤条件：删除长度小于等于 1 的序列，以及所有元素都相同的序列
+            return None
+        # remove list with only one element or all elements are the same
         if len(span_list) <= 1 or all(x == span_list[0] for x in span_list):
             return None
-        # 替换数字为文字
         try:
             word_list = [index_dict[num] for num in span_list]
         except KeyError:
-            return None  # 如果有数字未在索引中找到，返回 None
-        # 返回以字符串形式存储的列表
+            return None
+        # return the processed list as a string
         return str(word_list)
 
-    # 对第一列进行处理
+    # Process the first column of the DataFrame
     data_df['processed'] = data_df.iloc[:, 0].apply(process_row)
-    # 删除无效行（处理结果为 None 的行）
+    # Delete rows where 'processed' is None
     data_df = data_df.dropna(subset=['processed'])
-    # 仅保留processed列
     data_df = data_df[["processed"]]
 
-    # # 计算平均序列长度
+    # Average sequence length calculation (optional)
     # total = 0
     # for index, row in data_df.iterrows():
     #     span_list = ast.literal_eval(row)
     #     total += len(span_list)
     # avg_seq_length = total/len(data_df) if len(data_df) > 0 else 0
 
-    # 保存为新的 CSV 文件
     data_df.to_csv(output_file, index=False)
 
     print("Total sequences:", len(data_df))
@@ -695,8 +686,8 @@ def convert_string_to_sequence(input_file, header=True, key='none'):
             sequence = ast.literal_eval(row[key])
             sequences.append(sequence)
         except (SyntaxError, ValueError) as e:
-            print(f"错误处理第{idx}行: {e}")
-            print(f"问题字符串: {row[key]}")
+            print(f"Error parsing line{idx}: {e}")
+            print(f"{row[key]}")
             sequences.append([])  # 添加空列表作为占位符
 
     return sequences, df
@@ -732,33 +723,33 @@ def analyze_pf_output_stats(file_path):
         print(f"{length},{count}")
 
 
-# 自定义函数部分
+# Custom function section
 def extract_custom_functions_from_file(file_path):
     """
-    从单个文件中提取自定义函数。
-    :param file_path: 文件路径
-    :return: 提取到的自定义函数列表
+    Extract custom functions from a single file.
+    :param file_path: File path
+    :return: List of extracted custom functions
     """
     with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
         content = file.read()
 
-    # 正则表达式匹配自定义函数
-    # 匹配以 "function" 开头，后跟函数名和参数，直到匹配到对应的闭合大括号
+    # Regular expression to match custom functions
+    # Match lines starting with "function", followed by function name and parameters, until the corresponding closing brace
     function_pattern = re.compile(
         r'function\s+\w+\s*\(.*?\)\s*\{.*?\}',
         re.DOTALL
     )
 
-    # 找到所有匹配的函数
+    # Find all matching functions
     functions = function_pattern.findall(content)
     return functions
 
 
 def save_functions_to_file(functions, output_file):
     """
-    将函数列表保存到文件中，每个函数用 <function>...</function> 包裹。
-    :param functions: 函数列表
-    :param output_file: 输出文件路径
+    Save the function list to a file, each function wrapped with <function>...</function>.
+    :param functions: List of functions
+    :param output_file: Output file path
     """
     with open(output_file, 'w', encoding='utf-8') as file:
         for func in functions:
@@ -767,25 +758,25 @@ def save_functions_to_file(functions, output_file):
 
 def process_custom_functions_in_directory(directory, output_dir, batch_size=10000):
     """
-    解析目录中的所有 .txt 文件，提取自定义函数并分批保存。
-    :param directory: 输入目录路径
-    :param output_dir: 输出目录路径
-    :param batch_size: 每处理多少个文件保存一次结果
+    Parse all .txt files in the directory, extract custom functions, and save them in batches.
+    :param directory: Input directory path
+    :param output_dir: Output directory path
+    :param batch_size: Save results every batch_size files processed
     """
-    # 确保输出目录存在
+    # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
 
-    all_functions = []  # 存储所有提取到的函数
-    file_count = 0  # 记录已处理的文件数量
-    batch_number = 1  # 当前批次编号
+    all_functions = []  # Store all extracted functions
+    file_count = 0  # Number of files processed
+    batch_number = 1  # Current batch number
 
-    # 遍历目录中的所有文件
+    # Traverse all files in the directory
     for root, _, files in os.walk(directory):
         for file_name in files:
             if file_name.endswith('.txt'):
                 file_path = os.path.join(root, file_name)
                 try:
-                    # 提取当前文件中的函数
+                    # Extract functions from the current file
                     functions = extract_custom_functions_from_file(file_path)
                     all_functions.extend(functions)
                 except Exception as e:
@@ -793,34 +784,34 @@ def process_custom_functions_in_directory(directory, output_dir, batch_size=1000
 
                 file_count += 1
 
-                # 每处理 batch_size 个文件，保存一次结果
+                # Save results every batch_size files processed
                 if file_count % batch_size == 0:
                     output_file = os.path.join(output_dir, f"functions_batch_{batch_number}.txt")
                     save_functions_to_file(all_functions, output_file)
                     print(f"Saved {len(all_functions)} functions to {output_file}")
-                    all_functions.clear()  # 清空函数列表
+                    all_functions.clear()  # Clear function list
                     batch_number += 1
 
-    # 处理剩余的函数（不足一个批次的部分）
+    # Process remaining functions (less than one batch)
     if all_functions:
         output_file = os.path.join(output_dir, f"functions_batch_{batch_number}.txt")
         save_functions_to_file(all_functions, output_file)
         print(f"Saved {len(all_functions)} functions to {output_file}")
 
 
-def process_js_code_list(js_code_list, output_file):
+def process_code_list(code_list, output_file):
     all_operators = []
 
-    for i, code in enumerate(js_code_list):
+    for i, code in enumerate(code_list):
         try:
-            # 解析JavaScript代码生成AST
+            # Parse code to generate AST
             ast_data = esprima.parseScript(code, {'tolerant': True, 'jsx': True})
             # print(ast_data)
-            # 将AST对象转换为字典
+            # Convert AST object to dict
             ast_dict = json.loads(json.dumps(ast_data, default=lambda obj: obj.__dict__))
-            # 提取算子
-            operators = extract_operators_from_ast(ast_dict, skip_custom_function=False)
-            # 使用索引作为标识符
+            # Extract operators
+            operators = extract_operators_from_ast_py(ast_dict, skip_custom_function=False)
+            # Use index as identifier
             all_operators.append([f"code_{i}", operators])
 
             if (i + 1) % 1000 == 0:
@@ -832,21 +823,21 @@ def process_js_code_list(js_code_list, output_file):
     def save_operators_to_csv(operators_list, output_file):
         with open(output_file, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            # 写入表头，列名为Code_ID和Operators
+            # Write header, columns are Code_ID and Operators
             writer.writerow(["Code_ID", "Operators"])
-            # 写入每个代码片段的ID和算子序列
+            # Write each code snippet's ID and operator sequence
             for code_id, operators in operators_list:
                 if operators:
                     writer.writerow([code_id, str(operators)])
 
     save_operators_to_csv(all_operators, output_file)
-    print(f"Processed {len(js_code_list)} code snippets in total")
+    print(f"Processed {len(code_list)} code snippets in total")
     return all_operators
 
 
 def get_function_list(input_path):
     """
-    从指定目录中提取所有自定义函数。目录中应包含提取好的以<function>...</function>包裹的函数。
+    Extract all custom functions from the specified directory. The directory should contain functions wrapped with <function>...</function>.
     """
     functions = []
     function_pattern = re.compile(r'<function>(.*?)</function>', re.DOTALL)
@@ -870,21 +861,21 @@ def operator_sequence_clean_and_index(input_file, gee_operators_file, cleaned_ou
         df = pd.read_csv(input_file)
         sequences = []
 
-        # 假设序列在名为'Operators'的列中
+        # Assume the sequence is in the column named 'Operators'
         for idx, row in df.iterrows():
             try:
                 raw_operators = row['operators']
                 sequence = [op.strip() for op in raw_operators.split(',')]
                 sequences.append(sequence)
             except (SyntaxError, ValueError) as e:
-                print(f"错误处理第{idx}行: {e}")
-                print(f"问题字符串: {row['Operators']}")
-                sequences.append([])  # 添加空列表作为占位符
+                print(f"Error processing row {idx}: {e}")
+                print(f"Problem string: {row['Operators']}")
+                sequences.append([])  # Add empty list as placeholder
 
         return sequences, df
 
     def clean_sequences(sequences, gee_operators_file):
-        # 读取GEE官方算子列表
+        # Read the official GEE operator list
         all_apis = pd.read_csv(gee_operators_file, encoding='utf-8')
         all_apis_full = all_apis['full_name']
         all_apis_short = all_apis['short_name']
@@ -897,17 +888,17 @@ def operator_sequence_clean_and_index(input_file, gee_operators_file, cleaned_ou
             cleaned_seq = []
             for op in sequence:
                 if op in all_apis_set:
-                    # 如果完整名称是GEE算子，直接保留
+                    # If the full name is a GEE operator, keep it
                     cleaned_seq.append(op)
                 else:
-                    # 尝试分割并取最后一个部分
+                    # Try splitting and take the last part
                     processed_operator = op.split('.')[-1]
 
                     if processed_operator in all_apis_short_set:
-                        # 如果最后一部分是GEE算子，保留该部分
+                        # If the last part is a GEE operator, keep that part
                         cleaned_seq.append(processed_operator)
                     else:
-                        # 否则重命名为custom_operator
+                        # Otherwise, rename as custom_operator
                         cleaned_seq.append("custom_operator")
 
             cleaned_sequences.append(cleaned_seq)
@@ -915,12 +906,12 @@ def operator_sequence_clean_and_index(input_file, gee_operators_file, cleaned_ou
         return cleaned_sequences
 
     def encode_sequences(cleaned_sequences):
-        # 找出所有唯一的算子
+        # Find all unique operators
         all_operators = set()
         for seq in cleaned_sequences:
             all_operators.update(seq)
 
-        # 创建编码映射，custom_operator为0
+        # Create encoding mapping, custom_operator is 0
         operator_mapping = {"custom_operator": 0}
         counter = 1
 
@@ -929,7 +920,7 @@ def operator_sequence_clean_and_index(input_file, gee_operators_file, cleaned_ou
                 operator_mapping[op] = counter
                 counter += 1
 
-        # 编码序列
+        # Encode sequences
         encoded_sequences = []
         for seq in cleaned_sequences:
             encoded_seq = [operator_mapping[op] for op in seq if op != "custom_operator"]
@@ -937,72 +928,72 @@ def operator_sequence_clean_and_index(input_file, gee_operators_file, cleaned_ou
 
         return encoded_sequences, operator_mapping
 
-    # 步骤1: 转换字符串为序列
+    # Step 1: Convert string to sequence
     sequences, original_df = convert_string_to_sequence(input_file)
 
-    # 步骤2: 清洗序列
+    # Step 2: Clean sequences
     cleaned_sequences = clean_sequences(sequences, gee_operators_file)
 
-    # 保存清洗后的序列 - 使用pandas
+    # Save cleaned sequences - using pandas
     result_df = original_df.copy()
     result_df['Processed_Operators'] = cleaned_sequences
     if 'Operators' in result_df.columns:
         result_df = result_df.drop(columns=['Operators'])
     result_df = result_df.dropna()
     result_df.to_csv(cleaned_output_file, index=False)
-    print(f"已保存处理后的算子序列：{cleaned_output_file}")
+    print(f"Saved processed operator sequences: {cleaned_output_file}")
 
-    # 步骤3: 编码序列
+    # Step 3: Encode sequences
     encoded_sequences, operator_mapping = encode_sequences(cleaned_sequences)
 
-    # 保存编码后的序列 - 使用pandas
+    # Save encoded sequences - using pandas
     encoded_df = original_df.copy()
     encoded_df['Indexed_Operators'] = encoded_sequences
     encoded_df = encoded_df[['Indexed_Operators']]
     encoded_df.to_csv(encoded_output_file, index=False)
-    print(f"已生成索引序列文件：{encoded_output_file}")
+    print(f"Generated index sequence file: {encoded_output_file}")
 
-    # 保存算子映射关系 - 使用pandas
+    # Save operator mapping - using pandas
     mapping_df = pd.DataFrame({
         'Processed_Operators': [op for op, _ in sorted(operator_mapping.items(), key=lambda x: x[1])],
         'Index': [code for _, code in sorted(operator_mapping.items(), key=lambda x: x[1])]
     })
     mapping_df.to_csv(mapping_output_file, index=False)
-    print(f"已保存唯一算子映射：{mapping_output_file}")
+    print(f"Saved unique operator mapping: {mapping_output_file}")
 
 
 def get_custom_function_frequency(input_file, mapping_file, key="Indexed_Operators"):
     """
-    从输入文件中统计完全相同的自定义函数出现频率，并将数字序列映射回算子名称
-    :param input_file: 包含 Indexed_Operators 列的 CSV 文件路径
-    :param mapping_file: 映射文件路径，包含 Index 和 Processed_Operators 两列
-    :param key: 包含序列的列名，默认是 "Indexed_Operators"
-    :return: 按频率从高到低排列的算子序列及其频率列表
+    Count the frequency of exactly identical custom functions from the input file, and map the number sequence back to operator names.
+    :param input_file: CSV file path containing Indexed_Operators column
+    :param mapping_file: Mapping file path, containing Index and Processed_Operators columns
+    :param key: Column name containing the sequence, default is "Indexed_Operators"
+    :return: List of operator sequences and their frequencies, sorted by frequency descending
     """
-    # 1. 读取映射文件，建立 Index -> Operator 的映射
+    # 1. Read mapping file, build Index -> Operator mapping
     df_map = pd.read_csv(mapping_file)
     index_to_op = dict(zip(df_map['Index'], df_map['Processed_Operators']))
 
-    # 2. 读取主数据文件
+    # 2. Read main data file
     df = pd.read_csv(input_file)
     print(len(df))
     sequences = []
 
     for idx, row in df.iterrows():
         try:
-            # 使用ast.literal_eval将字符串转换为Python列表
+            # Use ast.literal_eval to convert string to Python list
             sequence = ast.literal_eval(row[key])
             if len(sequence) >= 2:
-                # 转换为算子名称序列
+                # Convert to operator name sequence
                 op_sequence = tuple([index_to_op[i] for i in sequence if i in index_to_op])
                 sequences.append(op_sequence)
         except (ValueError, SyntaxError, KeyError):
             continue
 
-    # 3. 统计频率
+    # 3. Count frequency
     function_frequency = Counter(sequences)
 
-    # 4. 按频率排序
+    # 4. Sort by frequency
     sorted_frequency = sorted(function_frequency.items(), key=lambda x: x[1], reverse=True)
 
     return sorted_frequency
@@ -1010,24 +1001,24 @@ def get_custom_function_frequency(input_file, mapping_file, key="Indexed_Operato
 
 def save_frequency_to_csv(freq_list, output_file, min_freq=1):
     """
-    将算子序列频率列表保存到CSV文件中
-    :param freq_list: 频率列表，格式为 [(sequence_tuple, count), ...]
-    :param output_file: 输出CSV文件路径
-    :param min_freq: 最小频率，低于该值的序列不会被保存
+    Save the operator sequence frequency list to a CSV file
+    :param freq_list: Frequency list, format [(sequence_tuple, count), ...]
+    :param output_file: Output CSV file path
+    :param min_freq: Minimum frequency, sequences below this value will not be saved
     """
     with open(output_file, mode='w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
-        # 写入表头
+        # Write header
         writer.writerow(['Sequence', 'Frequency'])
 
-        # 写入数据
+        # Write data
         for seq, freq in freq_list:
             if freq >= min_freq:
                 writer.writerow([str(seq), freq])
 
 
 def find_elbow(x, y):
-    # 计算每个点到首尾连线的距离
+    # Calculate the distance from each point to the line connecting the first and last points
     first = np.array([x[0], y[0]])
     last = np.array([x[-1], y[-1]])
     line_vec = last - first
@@ -1035,24 +1026,24 @@ def find_elbow(x, y):
 
     vec_from_first = np.array([(x - first[0]), (y - first[1])])
 
-    # 计算每个点到直线的距离
+    # Calculate the distance from each point to the line
     distances = np.abs(np.cross(line_vec_norm, vec_from_first.T))
 
-    # 找到距离最大的点
+    # Find the point with the maximum distance
     elbow_idx = np.argmax(distances)
     return x[elbow_idx], y[elbow_idx]
 
 
 def plot_frequency_distribution(freq_list, start_threshold=2):
     """
-    绘制出现次数大于等于 x 的函数数量随 x 变化的折线图，并使用对数坐标
-    :param freq_list: 频率列表，格式为 [(sequence, count), ...]，已排序
-    :param start_threshold: 起始阈值，默认从 2 开始
+    Plot a line chart showing the number of function sequences with frequency greater than or equal to x as x varies, using logarithmic coordinates.
+    :param freq_list: Frequency list in the format [(sequence, count), ...], already sorted
+    :param start_threshold: Starting threshold, default starts from 2
     """
-    # 提取所有频率
+    # Extract all frequencies
     counts = [count for _, count in freq_list]
 
-    # 准备数据：x 是阈值，y 是满足 count >= x 的数量
+    # Prepare data: x is the threshold, y is the number of sequences with count >= x
     max_freq = max(counts)
     x_values = list(range(start_threshold, max_freq + 1))
     y_values = []
@@ -1065,110 +1056,103 @@ def plot_frequency_distribution(freq_list, start_threshold=2):
     elbow_x, elbow_y = find_elbow(x_values, y_values)
     print(elbow_x, elbow_y)
 
-    # 绘图
+    # Plot
     plt.figure(figsize=(15, 6))
     plt.plot(x_values, y_values, marker='o', linestyle='-', color='b')
     plt.title('Number of Function Sequences with Frequency')
     plt.xlabel('Frequency Threshold (X)')
     plt.ylabel('Number of Sequences (log scale)')
-    # plt.yscale('log')  # 使用对数Y轴
-    plt.grid(True, which="both", ls="--")  # 同时显示主次网格线
+    # plt.yscale('log')  # Use logarithmic Y axis
+    plt.grid(True, which="both", ls="--")  # Show both major and minor grid lines
     plt.tight_layout()
     plt.show()
 
 
-
 if __name__ == '__main__':
-    # 组合需求构建中的频繁序列挖掘部分
-    #
-    # with open("./script_10410_ast.txt") as f:
-    #     content = json.load(f)
-    # result = extract_operators_from_ast(content, False, "[function]")
-    # print(result)
+    # Frequent sequence mining for script operators
 
-    # 处理AST并转为算子序列
-    # folder_path = '../ScriptAST/script_ast'
-    # output_dir = './data/script_operators/'
-    # output_file = './data/script_operators/operators_sequence_script_and_function_all.csv'
-    # process_all_zips(folder_path, output_dir, output_file)
-    # merge_results(output_dir, output_file)
+    # Parse script operators from code
+    folder_path = '../ScriptAST/script_ast'
+    output_dir = './data/script_operators/'
+    output_file = './data/script_operators/operators_sequence_script_and_function_all.csv'
+    process_all_zips(folder_path, output_dir, output_file)
+    merge_results(output_dir, output_file)
 
-    # split_operator_chains('./data/script_operators/operators_sequence_script_and_function_all.csv',
-    #                       './data/script_operators/operators_sequence_all.csv',
-    #                       './data/custom_functions/custom_function_operators_sequence_all.csv')
+    split_operator_chains('./data/script_operators/operators_sequence_script_and_function_all.csv',
+                          './data/script_operators/operators_sequence_all.csv',
+                          './data/custom_functions/custom_function_operators_sequence_all.csv')
 
-    # 将算子序列进行编号
-    # input_csv = './data/script_operators/operators_sequence_all.csv'
-    # indexed_operators_output_dir = './data/script_operators'
-    # operators_file = './data/all_GEE_APIs_utf8.csv'
-    # index_operators(input_csv, operators_file, indexed_operators_output_dir)
+    # Index operators
+    input_csv = './data/script_operators/operators_sequence_all.csv'
+    indexed_operators_output_dir = './data/script_operators'
+    operators_file = './data/all_GEE_APIs_utf8.csv'
+    index_operators(input_csv, operators_file, indexed_operators_output_dir)
 
     # Process custom functions
-    # input_file = "./data/custom_functions/custom_function_operators_sequence_all.csv"
-    # gee_operators_file = "./data/all_GEE_APIs_utf8.csv"
-    # cleaned_output_file = "./data/custom_functions/custom_function_cleaned_sequences_all.csv"
-    # encoded_output_file = "./data/custom_functions/custom_function_indexed_sequences_all.csv"
-    # mapping_output_file = "./data/custom_functions/custom_function_operator_mapping.csv"
-    # operator_sequence_clean_and_index(input_file, gee_operators_file, cleaned_output_file, encoded_output_file, mapping_output_file)
+    input_file = "./data/custom_functions/custom_function_operators_sequence_all.csv"
+    gee_operators_file = "./data/all_GEE_APIs_utf8.csv"
+    cleaned_output_file = "./data/custom_functions/custom_function_cleaned_sequences_all.csv"
+    encoded_output_file = "./data/custom_functions/custom_function_indexed_sequences_all.csv"
+    mapping_output_file = "./data/custom_functions/custom_function_operator_mapping.csv"
+    operator_sequence_clean_and_index(input_file, gee_operators_file, cleaned_output_file, encoded_output_file, mapping_output_file)
 
     # Deduplicate custom functions
-    # input_path = r"../ScriptAST/custom_functions"
-    # js_func_list = get_function_list(input_path)
-    # js_func_list = list(set(js_func_list))
-    # print(len(js_func_list))
+    input_path = r"../ScriptAST/custom_functions"
+    js_func_list = get_function_list(input_path)
+    js_func_list = list(set(js_func_list))
+    print(len(js_func_list))
 
     # Frequent sequence mining for script operator sequences
     # NOTE: Requires Java 21 or higher
-    # convert_to_spmf_format('./data/script_operators/indexed_operators_sequence_all.csv',
-    #                         './data/script_operators/sequences_spmf.txt')
-    # support_list = [0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.11, 0.12, 0.13, 0.14, 0.15, 0.16, 0.17, 0.18, 0.19, 0.2]
-    # for support in support_list:
-    #     prefix_span_spmf('./data/script_operators/sequences_spmf.txt', support, 10,
-    #                      f"./data/script_operators/prefixspan_output_{support}_10.csv")
-    #     span_to_operator(f'./data/script_operators/prefixspan_output_{support}_10.csv',
-    #                      './data/script_operators/indexed_unique_operators.csv',
-    #                      f'./data/script_operators/prefixspan_output_operators_{support}_10.csv')
-    #     analyze_pf_output_stats(f'./data/script_operators/prefixspan_output_operators_{support}_10.csv')
+    convert_to_spmf_format('./data/script_operators/indexed_operators_sequence_all.csv',
+                            './data/script_operators/sequences_spmf.txt')
+    support_list = [0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.11, 0.12, 0.13, 0.14, 0.15, 0.16, 0.17, 0.18, 0.19, 0.2]
+    for support in support_list:
+        prefix_span_spmf('./data/script_operators/sequences_spmf.txt', support, 10,
+                         f"./data/script_operators/prefixspan_output_{support}_10.csv")
+        span_to_operator(f'./data/script_operators/prefixspan_output_{support}_10.csv',
+                         './data/script_operators/indexed_unique_operators.csv',
+                         f'./data/script_operators/prefixspan_output_operators_{support}_10.csv')
+        analyze_pf_output_stats(f'./data/script_operators/prefixspan_output_operators_{support}_10.csv')
 
     # Frequent sequence mining for custom function operator sequences
     # NOTE: Requires Java 21 or higher
-    # convert_to_spmf_format('./data/custom_functions/custom_function_indexed_sequences_all.csv',
-    #                        './data/custom_functions/custom_functions_sequences_spmf.txt')
-    # support_list = [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.11, 0.12, 0.13, 0.14, 0.15]
-    # for support in support_list:
-    #     prefix_span_spmf('./data/custom_functions/custom_functions_sequences_spmf.txt', support, 10,
-    #                      f"./data/custom_functions/custom_functions_prefixspan_output_{support}_10.csv")
-    #     span_to_operator(f'./data/custom_functions/custom_functions_prefixspan_output_{support}_10.csv',
-    #                      './data/custom_functions/custom_function_operator_mapping.csv',
-    #                      f'./data/custom_functions/custom_function_prefixspan_output_operators_{support}_10.csv')
-    #     analyze_pf_output_stats(f'./data/custom_functions/custom_function_prefixspan_output_operators_{support}_10.csv')
-
+    convert_to_spmf_format('./data/custom_functions/custom_function_indexed_sequences_all.csv',
+                           './data/custom_functions/custom_functions_sequences_spmf.txt')
+    support_list = [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.11, 0.12, 0.13, 0.14, 0.15]
+    for support in support_list:
+        prefix_span_spmf('./data/custom_functions/custom_functions_sequences_spmf.txt', support, 10,
+                         f"./data/custom_functions/custom_functions_prefixspan_output_{support}_10.csv")
+        span_to_operator(f'./data/custom_functions/custom_functions_prefixspan_output_{support}_10.csv',
+                         './data/custom_functions/custom_function_operator_mapping.csv',
+                         f'./data/custom_functions/custom_function_prefixspan_output_operators_{support}_10.csv')
+        analyze_pf_output_stats(f'./data/custom_functions/custom_function_prefixspan_output_operators_{support}_10.csv')
 
     # Mine frequently occurring custom functions
-    # seq_file = "./data/custom_functions/custom_function_indexed_sequences_all.csv"
-    # mapping_file = "./data/custom_functions/custom_function_operator_mapping.csv"
-    # freq_list = get_custom_function_frequency(seq_file, mapping_file)
-    # save_frequency_to_csv(freq_list, "./data/custom_functions/custom_fuction_frequency.csv", min_freq=2)
-    # plot_frequency_distribution(freq_list, start_threshold=2)
+    seq_file = "./data/custom_functions/custom_function_indexed_sequences_all.csv"
+    mapping_file = "./data/custom_functions/custom_function_operator_mapping.csv"
+    freq_list = get_custom_function_frequency(seq_file, mapping_file)
+    save_frequency_to_csv(freq_list, "./data/custom_functions/custom_fuction_frequency.csv", min_freq=2)
+    plot_frequency_distribution(freq_list, start_threshold=2)
 
     # Merge files
-    # merge_csv_files(r'./data/script_operators/prefixspan_output_operators_0.1_10.csv',
-    #                 r'./data/custom_functions/custom_function_prefixspan_output_operators_0.04_10.csv',
-    #                 r'./data/prefix_span_combined_operators_list_0.1_0.04.csv')
-    #
-    # high_freq_func = pd.read_csv(r'./data/custom_functions/custom_fuction_frequency.csv')
-    # high_freq_func = high_freq_func[high_freq_func['Frequency'] >= 150]
-    # high_freq_func = high_freq_func[['Sequence']].rename(columns={'Sequence': 'processed'})
-    # high_freq_func.to_csv(r'./data/custom_functions/high_frequency_functions.csv', index=False)
-    #
-    # merge_csv_files(r"./data/custom_functions/high_frequency_functions.csv",
-    #                 r'./data/prefix_span_combined_operators_list_0.1_0.04.csv',
-    #                 r'./data/combined_operators_list_0.1_0.04_150.csv')
-    # analyze_pf_output_stats(f'./data/combined_operators_list_0.1_0.04_150.csv')
+    merge_csv_files(r'./data/script_operators/prefixspan_output_operators_0.1_10.csv',
+                    r'./data/custom_functions/custom_function_prefixspan_output_operators_0.04_10.csv',
+                    r'./data/prefix_span_combined_operators_list_0.1_0.04.csv')
+
+    high_freq_func = pd.read_csv(r'./data/custom_functions/custom_fuction_frequency.csv')
+    high_freq_func = high_freq_func[high_freq_func['Frequency'] >= 150]
+    high_freq_func = high_freq_func[['Sequence']].rename(columns={'Sequence': 'processed'})
+    high_freq_func.to_csv(r'./data/custom_functions/high_frequency_functions.csv', index=False)
+
+    merge_csv_files(r"./data/custom_functions/high_frequency_functions.csv",
+                    r'./data/prefix_span_combined_operators_list_0.1_0.04.csv',
+                    r'./data/combined_operators_list_0.1_0.04_150.csv')
+    analyze_pf_output_stats(f'./data/combined_operators_list_0.1_0.04_150.csv')
 
     # Count unique operators in merged file
-    # unique_operators = get_all_operators_to_csv("./data/prefix_span_combined_operators_list_0.25_0.1.csv", key="processed")
-    # print(len(unique_operators))
-    # print(unique_operators)
+    unique_operators = get_all_operators_to_csv("./data/prefix_span_combined_operators_list_0.25_0.1.csv", key="processed")
+    print(len(unique_operators))
+    print(unique_operators)
 
     print(1)
